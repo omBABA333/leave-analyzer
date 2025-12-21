@@ -11,10 +11,4 @@ yarn-error.log*
 build/
 dist/
 
-# IDE
-.vscode/
-.idea/
 
-# OS
-.DS_Store
-Thumbs.db
