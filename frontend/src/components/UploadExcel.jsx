@@ -1,8 +1,21 @@
 import React from "react";
 
 const UploadExcel = ({ onUpload }) => {
-  const handleFileChange = (e) => {
+
+  const handleFileChange = async(e) => {
     const file = e.target.files[0];
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch("/api/upload", {
+    method: "POST",
+    body: formData
+    });
+
+    const data = await res.json();
+    console.log(data);
+    
     if (file && onUpload) {
       onUpload(file);
     }
