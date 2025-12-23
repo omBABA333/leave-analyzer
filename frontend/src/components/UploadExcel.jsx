@@ -5,20 +5,29 @@ const UploadExcel = ({ onUpload }) => {
   const handleFileChange = async(e) => {
     const file = e.target.files[0];
 
+    if (!file) {
+    alert("Please select a file");
+    return;
+    }
+    
+
     const formData = new FormData();
     formData.append("file", file);
 
-    const res = await fetch("/api/upload", {
-    method: "POST",
-    body: formData
+     try {
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      body: formData
     });
 
-    const data = await res.json();
-    console.log(data);
-    
-    if (file && onUpload) {
-      onUpload(file);
-    }
+    const result = await response.json();
+    console.log(result);
+    alert("File uploaded successfully");
+  } catch (error) {
+    console.error(error);
+    alert("Upload failed");
+  }
+
   };
 
   return (
