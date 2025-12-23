@@ -3,7 +3,7 @@ import React from "react";
 const UploadExcel = ({ onUpload }) => {
 
   const handleFileChange = async(e) => {
-    const file = e.target.files[0];
+    //const file = e.target.files[0];
 
     if (!file) {
     alert("Please select a file");
@@ -15,14 +15,17 @@ const UploadExcel = ({ onUpload }) => {
     formData.append("file", file);
 
      try {
-    const response = await fetch("/api/upload", {
+      const response = await fetch("/api/upload", {
       method: "POST",
       body: formData
-    });
+      });
 
-    const result = await response.json();
-    console.log(result);
-    alert("File uploaded successfully");
+      if (!response.ok) {
+        throw new Error("Upload failed");
+      }
+
+    const data = await response.json();
+    alert(data.message);
   } catch (error) {
     console.error(error);
     alert("Upload failed");

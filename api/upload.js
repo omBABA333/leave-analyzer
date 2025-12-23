@@ -6,36 +6,28 @@ export const config = {
   },
 };
 
-export default async function handler(req, res) {
+export default function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).json({ message: "Method not allowed" });
+    return res.status(405).json({ error: "Only POST allowed" });
   }
 
-  try {
-    const form = new formidable.IncomingForm({
-      keepExtensions: true,
-      maxFileSize: 5 * 1024 * 1024, // 5MB
+  const form = new formidable.IncomingForm({
+    keepExtensions: true,
+    maxFileSize: 5 * 1024 * 1024,
+  });
+
+  form.parse(req, (err, fields, files) => {
+    if (err) {
+      return res.status(500).json({ error: "Upload failed" });
+    }
+
+    if (!files.file) {
+      return res.status(400).json({ error: "No file received" });
+    }
+
+    return res.status(200).json({
+      message: "File uploaded successfully",
+      filename: files.file.originalFilename,
     });
-
-    form.parse(req, (err, fields, files) => {
-      if (err) {
-        console.error("Form parse error:", err);
-        return res.status(500).json({ error: "File parsing failed" });
-      }
-
-      const uploadedFile = files.file;
-
-      if (!uploadedFile) {
-        return res.status(400).json({ error: "No file received" });
-      }
-
-      return res.status(200).json({
-        message: "File uploaded successfully",
-        filename: uploadedFile.originalFilename,
-      });
-    });
-  } catch (error) {
-    console.error("Server error:", error);
-    return res.status(500).json({ error: "Server error" });
-  }
+  });
 }
