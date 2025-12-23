@@ -3,7 +3,8 @@ import UploadExcel from "../components/UploadExcel";
 import Dashboard from "../components/Dashboard";
 
 const Home = () => {
-  const [data, setData] = useState([]);
+  // eslint-disable-next-line no-unused-vars
+  const [data] = useState([]);
 
   const handleUpload = (file) => {
     console.log("Uploaded file:", file);
