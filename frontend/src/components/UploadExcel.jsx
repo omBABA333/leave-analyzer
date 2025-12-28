@@ -11,7 +11,7 @@ const UploadExcel = () => {
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!file) return alert("Select a file first");
+    if (!file) return alert("No file Uploaded:<");
 
     setLoading(true);
     const formData = new FormData();
@@ -23,7 +23,7 @@ const UploadExcel = () => {
       if (res.ok) setData(result);
       else alert(result.error);
     } catch (err) {
-      alert("Upload failed");
+      alert("Uploading failed!");
     } finally {
       setLoading(false);
     }
@@ -32,12 +32,10 @@ const UploadExcel = () => {
   return (
     <div className="min-h-screen bg-gray-50 p-8 font-sans text-gray-800">
       <div className="max-w-7xl mx-auto">
-        
-        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-indigo-700">Leave & Productivity Analyzer</h1>
-            <p className="text-gray-500 text-sm mt-1">NMIMS Intern Project</p>
+            <p className="text-gray-500 text-sm mt-1">Om Aher | Intern Project | MPSTME</p>
           </div>
           
           {/* Upload Form */}
