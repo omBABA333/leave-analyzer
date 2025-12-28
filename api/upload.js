@@ -1,53 +1,34 @@
 import { IncomingForm } from "formidable";
 import * as XLSX from "xlsx";
 
-// 1. SMART TIME PARSER (Handles "10:00", "10:00 AM", and Excel Decimals)
+// 1. Time Parser
 const parseTime = (val) => {
   if (val === undefined || val === null || val === "") return null;
-
-  // Case A: Excel Decimal (e.g., 0.41666 for 10:00 AM)
-  if (typeof val === 'number') {
-    // Excel stores time as a fraction of a day (1.0 = 24 hours)
-    const totalHours = val * 24;
-    return totalHours;
-  }
-
-  // Case B: String (e.g., "10:00", "10:00 AM", "18:30")
+  if (typeof val === 'number') return val * 24; // Excel fraction
   const str = String(val).trim().toUpperCase();
-  
-  // Regex to find HH:MM
   const match = str.match(/(\d{1,2}):(\d{2})/);
   if (match) {
-    let hours = parseInt(match[1], 10);
-    let minutes = parseInt(match[2], 10);
-
-    // Handle PM adjustment if "PM" exists in string
-    if (str.includes("PM") && hours < 12) hours += 12;
-    if (str.includes("AM") && hours === 12) hours = 0;
-
-    return hours + (minutes / 60);
+    let h = parseInt(match[1], 10);
+    let m = parseInt(match[2], 10);
+    if (str.includes("PM") && h < 12) h += 12;
+    if (str.includes("AM") && h === 12) h = 0;
+    return h + (m / 60);
   }
-
   return null;
 };
 
-// 2. HELPER: Find column value regardless of casing/hyphens
+// 2. Column Finder (Fuzzy Match)
 const getValue = (row, ...candidates) => {
   const keys = Object.keys(row);
-  for (let candidate of candidates) {
-    // normalize candidate (remove spaces, hyphens, lowercase)
-    const normalizedCand = candidate.toLowerCase().replace(/[- ]/g, '');
-    
-    // Find matching key in row
-    const foundKey = keys.find(k => k.toLowerCase().replace(/[- ]/g, '') === normalizedCand);
-    if (foundKey) return row[foundKey];
+  for (let cand of candidates) {
+    const norm = cand.toLowerCase().replace(/[- ]/g, '');
+    const key = keys.find(k => k.toLowerCase().replace(/[- ]/g, '') === norm);
+    if (key) return row[key];
   }
   return null;
 };
 
-export const config = {
-  api: { bodyParser: false },
-};
+export const config = { api: { bodyParser: false } };
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -56,102 +37,96 @@ export default async function handler(req, res) {
 
   form.parse(req, (err, fields, files) => {
     if (err) return res.status(500).json({ error: "Upload failed" });
-
-    const uploadedFile = Array.isArray(files.file) ? files.file[0] : files.file;
-    if (!uploadedFile) return res.status(400).json({ error: "No file uploaded" });
+    const file = Array.isArray(files.file) ? files.file[0] : files.file;
+    if (!file) return res.status(400).json({ error: "No file" });
 
     try {
-      const workbook = XLSX.readFile(uploadedFile.filepath);
-      const sheetName = workbook.SheetNames[0];
-      const rawData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      const workbook = XLSX.readFile(file.filepath);
+      const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
-      // --- BUSINESS LOGIC START ---
-      let totalExpectedHours = 0;
-      let totalWorkedHours = 0;
-      let leaves = 0;
-      let workingDays = 0;
+      let totalExpected = 0, totalWorked = 0, leaves = 0, workingDays = 0;
+      let employeeName = "Unknown"; // Default
 
-      const processedData = rawData.map((row) => {
-        // 1. Get Clean Data using Fuzzy Match
+      const details = data.map((row) => {
+        // Capture Employee Name (if exists in row)
+        const nameInRow = getValue(row, 'Employee Name', 'EmployeeName', 'Name', 'Employee');
+        if (nameInRow) employeeName = nameInRow;
+
         const dateRaw = getValue(row, 'Date', 'date');
-        const inTimeRaw = getValue(row, 'In-Time', 'InTime', 'In Time');
-        const outTimeRaw = getValue(row, 'Out-Time', 'OutTime', 'Out Time');
+        const inTimeRaw = getValue(row, 'In-Time', 'InTime');
+        const outTimeRaw = getValue(row, 'Out-Time', 'OutTime');
 
-        // 2. Parse Date & Determine Day Type
-        const dateObj = new Date(dateRaw); 
-        // Note: If Excel dates are serial numbers (e.g. 45293), new Date() might fail.
-        // Usually sheet_to_json handles this, but strictly speaking we trust the string format here.
+        // Date & Day Logic
+        const dateObj = new Date(dateRaw);
+        const day = dateObj.getDay(); // 0=Sun, 6=Sat
         
-        const dayOfWeek = dateObj.getDay(); // 0=Sun, 6=Sat
-
         let expected = 0;
         let dayType = 'Weekday';
-        let isLeave = false;
 
-        // Apply NMIMS Rules
-        if (dayOfWeek === 0) {
-          expected = 0; // Sunday Off
+        if (day === 0) {
           dayType = 'Sunday';
-        } else if (dayOfWeek === 6) {
-          expected = 4.0; // Saturday Half Day
+        } else if (day === 6) {
+          expected = 4.0;
           dayType = 'Saturday';
           workingDays++;
         } else {
-          expected = 8.5; // Mon-Fri
-          dayType = 'Weekday';
+          expected = 8.5;
           workingDays++;
         }
 
-        // 3. Calculate Worked Hours
+        // Time Calculation
         const inTime = parseTime(inTimeRaw);
         const outTime = parseTime(outTimeRaw);
         let worked = 0;
+        let isLeave = false;
+        let status = 'Present';
 
-        if (inTime !== null && outTime !== null) {
+        if (inTime != null && outTime != null) {
           worked = outTime - inTime;
-          if (worked < 0) worked = 0; // Safety check
+          if (worked < 0) worked = 0;
         } else if (expected > 0) {
-           // If it's a working day but time is missing -> LEAVE
-           isLeave = true;
-           leaves++; 
+          isLeave = true;
+          leaves++;
+          status = 'Absent / Leave';
+        } else if (day === 0) {
+           status = 'Weekend';
         }
 
-        totalExpectedHours += expected;
-        totalWorkedHours += worked;
+        totalExpected += expected;
+        totalWorked += worked;
 
         return {
           Date: dateRaw,
+          Employee: employeeName,
           DayType: dayType,
           InTime: inTimeRaw || '-',
           OutTime: outTimeRaw || '-',
           workedHours: worked.toFixed(2),
-          expectedHours: expected,
-          isLeave: isLeave
+          status,
+          isLeave
         };
       });
 
-      // 4. Productivity Calculation
-      // Avoid division by zero
-      const productivity = totalExpectedHours > 0 
-        ? ((totalWorkedHours / totalExpectedHours) * 100).toFixed(2) 
+      const productivity = totalExpected > 0 
+        ? ((totalWorked / totalExpected) * 100).toFixed(2) 
         : "0.00";
 
       return res.status(200).json({
-        message: "Analysis Complete",
+        message: "Success",
         summary: {
-          totalWorkingDays: workingDays,
-          totalExpectedHours: totalExpectedHours,
-          totalWorkedHours: totalWorkedHours.toFixed(2),
-          leavesTaken: leaves,
-          leavesAllowed: 2, // Hardcoded per requirement
-          productivityScore: productivity
+          employeeName, // Send back the name found
+          workingDays,
+          totalExpected,
+          totalWorked: totalWorked.toFixed(2),
+          leaves,
+          productivity
         },
-        details: processedData
+        details
       });
 
-    } catch (error) {
-      console.error(error);
-      return res.status(500).json({ error: "Error processing Excel data. Check file format." });
+    } catch (e) {
+      console.error(e);
+      return res.status(500).json({ error: "Processing failed" });
     }
   });
 }
