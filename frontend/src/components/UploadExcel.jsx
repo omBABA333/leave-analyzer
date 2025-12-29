@@ -1,21 +1,17 @@
 import React, { useState, useRef } from "react";
 
 const UploadExcel = () => {
-  // Tab State
-  const [activeTab, setActiveTab] = useState("upload"); // 'upload' or 'history'
-
-  // Upload State
+  const [activeTab, setActiveTab] = useState("upload"); 
   const [file, setFile] = useState(null);
   const [uploadData, setUploadData] = useState(null);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef(null);
 
-  // History State
   const [selectedMonth, setSelectedMonth] = useState("");
   const [historyData, setHistoryData] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // --- Upload Handlers ---
+  // --- HANDLERS ---
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) setFile(e.target.files[0]);
   };
@@ -31,11 +27,11 @@ const UploadExcel = () => {
     try {
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const result = await res.json();
-      
       if (res.ok) {
         setUploadData(result);
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = ""; 
+        alert("Upload Successful!");
       } else {
         alert("Server Error: " + (result.error || "Unknown error"));
       }
@@ -46,15 +42,12 @@ const UploadExcel = () => {
     }
   };
 
-  // --- History Handlers ---
   const handleFetchHistory = async () => {
     if (!selectedMonth) return alert("Please select a month");
-    
     setHistoryLoading(true);
     try {
       const res = await fetch(`/api/stats?month=${selectedMonth}`);
       const result = await res.json();
-      
       if (res.ok) {
         if(result.summary === null) {
           alert("No records found for this month.");
@@ -74,7 +67,6 @@ const UploadExcel = () => {
 
   const handleReset = async () => {
     if (!window.confirm("⚠️ WARNING: This will delete ALL history from the database. Are you sure?")) return;
-    
     try {
       const res = await fetch("/api/reset", { method: "DELETE" });
       if (res.ok) {
@@ -89,8 +81,16 @@ const UploadExcel = () => {
     }
   };
 
-  // Determine which data to show based on active tab
   const displayData = activeTab === "upload" ? uploadData : historyData;
+
+  // --- HELPER TO RENDER STATUS BADGES ---
+  const renderStatus = (row) => {
+    if (row.isLeave) return <span className="text-red-600 font-bold flex items-center gap-1">⚠ Absent</span>;
+    if (row.status === 'Weekend') return <span className="text-gray-400 font-medium">Weekend</span>;
+    if (row.status === 'Holiday') return <span className="text-blue-600 font-bold">🎉 Holiday</span>;
+    if (row.status === 'Upcoming') return <span className="text-indigo-400 font-medium">Upcoming</span>;
+    return <span className="text-green-600 font-bold">Present</span>;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-8 font-sans text-gray-800">
@@ -104,15 +104,12 @@ const UploadExcel = () => {
           </div>
           
           <div className="flex gap-4">
-            {/* RESET BUTTON */}
             <button 
               onClick={handleReset}
               className="px-4 py-2 rounded-md text-sm font-bold bg-red-100 text-red-600 hover:bg-red-200 border border-red-200 transition"
             >
               🗑️ Clear Database
             </button>
-
-            {/* TABS */}
             <div className="flex bg-white rounded-lg shadow-sm p-1 border">
               <button 
                 onClick={() => setActiveTab("upload")}
@@ -184,9 +181,14 @@ const UploadExcel = () => {
           <div className="animate-fade-in-up">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
               <Card label="Employee" value={displayData.summary.employeeName} />
+              
               <Card label="Productivity" value={`${displayData.summary.productivity}%`} 
-                    color={parseFloat(displayData.summary.productivity) > 100 ? "text-red-600" : parseFloat(displayData.summary.productivity) > 90 ? "text-green-600" : "text-yellow-600"} />
-              <Card label="Leaves (in selection)" value={displayData.summary.leaves} />
+                    color={parseFloat(displayData.summary.productivity) > 90 ? "text-green-600" : "text-yellow-600"} />
+              
+              {/* FIXED: Leaves turn RED if > 2 */}
+              <Card label="Leaves Used" value={`${displayData.summary.leaves} / 2`} 
+                    color={displayData.summary.leaves > 2 ? "text-red-600" : "text-gray-800"} />
+              
               <Card label="Actual Hours" value={displayData.summary.totalWorked} />
               <Card label="Expected Hours" value={displayData.summary.totalExpected} />
             </div>
@@ -204,12 +206,21 @@ const UploadExcel = () => {
                   {displayData.details.map((row, idx) => (
                     <tr key={idx} className={row.isLeave ? "bg-red-50" : "hover:bg-gray-50"}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.date}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">{row.dayType}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold
+                          ${row.dayType === 'Saturday' ? 'bg-orange-100 text-orange-800' : 
+                            row.dayType === 'Sunday' ? 'bg-gray-200 text-gray-600' : 
+                            row.dayType === 'Holiday' ? 'bg-blue-100 text-blue-800' : 'text-gray-600'}`}>
+                          {row.dayType}
+                        </span>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.inTime}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.outTime}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-800">{row.workedHours}</td>
+                      
+                      {/* FIXED: Correct Status Logic */}
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {row.isLeave ? <span className="text-red-600 font-bold">⚠ Absent</span> : <span className="text-green-600 font-medium">Present</span>}
+                        {renderStatus(row)}
                       </td>
                     </tr>
                   ))}

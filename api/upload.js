@@ -3,11 +3,20 @@ import * as XLSX from "xlsx";
 import dbConnect from "./db";           
 import Attendance from "./models/Attendance"; 
 
+// --- CONFIGURATION: Public Holidays (YYYY-MM-DD) ---
+const HOLIDAYS = [
+  "2025-01-26", // Republic Day
+  "2025-08-15", // Independence Day
+  "2025-10-02", // Gandhi Jayanti
+  "2025-12-25", // Christmas
+  // Add more dates here as needed
+];
+
 // 1. ROBUST DATE PARSER
 const parseExcelDate = (val) => {
   if (!val) return null;
   const asNumber = parseFloat(val);
-  // Excel serial number check (20000 - 60000 covers years 1954 - 2064)
+  // Excel serial number check (covers years 1954 - 2064)
   if (!isNaN(asNumber) && asNumber > 20000 && asNumber < 60000 && String(val).match(/^\d+(\.\d+)?$/)) {
     return new Date(Math.round((asNumber - 25569) * 86400 * 1000));
   }
@@ -101,7 +110,7 @@ export default async function handler(req, res) {
            return { employeeName, date: "Invalid Date", status: "Error", isLeave: false };
         }
 
-        const formattedDate = formatDateString(dateObj);
+        const formattedDate = formatDateString(dateObj); // YYYY-MM-DD
         datesToOverwrite.push(formattedDate); 
 
         const day = dateObj.getUTCDay(); // 0=Sunday
@@ -112,41 +121,59 @@ export default async function handler(req, res) {
         let isLeave = false;
         let worked = 0;
 
-        // --- STRICT SUNDAY LOGIC ---
-        if (day === 0) {
-          // Force EVERYTHING to zero for Sunday
-          dayType = 'Sunday';
-          expected = 0;
-          worked = 0;
-          status = 'Weekend';
-          // We ignore InTime/OutTime completely
-        } 
-        else {
-          // --- MONDAY TO SATURDAY LOGIC ---
-          if (day === 6) { 
-            dayType = 'Saturday'; 
-            expected = 4.0; 
-            workingDays++; 
-          } else { 
-            expected = 8.5; 
-            workingDays++; 
-          }
+        // --- LOGIC START ---
 
-          // Calculate Worked Hours
-          const inTimeVal = parseTime(inTimeRaw);
-          const outTimeVal = parseTime(outTimeRaw);
-
-          if (inTimeVal != null && outTimeVal != null) {
-            worked = outTimeVal - inTimeVal;
-            if (worked < 0) worked += 24; // Handle overnight
-            status = 'Present';
-          } else {
-            // No time logged on a working day = ABSENT
-            isLeave = true;
-            leaves++;
-            status = 'Absent / Leave';
-          }
+        // 1. Check for Public Holidays first
+        if (HOLIDAYS.includes(formattedDate)) {
+            dayType = 'Holiday';
+            expected = 0;
+            status = 'Holiday';
+            // Holidays are NOT leaves, and hours are NOT expected
         }
+        // 2. Strict Sunday Logic
+        else if (day === 0) {
+            dayType = 'Sunday';
+            expected = 0;
+            status = 'Weekend';
+            // Force 0 hours regardless of what is in the file
+        }
+        // 3. Regular Working Days (Mon-Sat)
+        else {
+            if (day === 6) { 
+                dayType = 'Saturday'; 
+                expected = 4.0; 
+                workingDays++; 
+            } else { 
+                expected = 8.5; 
+                workingDays++; 
+            }
+
+            // Parse Worked Hours
+            const inTimeVal = parseTime(inTimeRaw);
+            const outTimeVal = parseTime(outTimeRaw);
+
+            if (inTimeVal != null && outTimeVal != null) {
+                worked = outTimeVal - inTimeVal;
+                if (worked < 0) worked += 24; // Handle overnight shifts
+                status = 'Present';
+            } else {
+                // No time logged. Is it a future date?
+                const today = new Date().toISOString().split('T')[0];
+                
+                if (formattedDate > today) {
+                    // Future dates shouldn't count as leaves yet
+                    status = 'Upcoming';
+                    expected = 0; // Don't hurt productivity for future dates
+                } else {
+                    // Past date with no time = LEAVE
+                    isLeave = true;
+                    leaves++;
+                    status = 'Absent / Leave';
+                }
+            }
+        }
+
+        // --- LOGIC END ---
 
         const inTimeDisplay = formatTimeDisplay(inTimeRaw);
         const outTimeDisplay = formatTimeDisplay(outTimeRaw);
@@ -158,8 +185,9 @@ export default async function handler(req, res) {
           employeeName, 
           date: formattedDate,
           dayType,
-          inTime: day === 0 ? '-' : inTimeDisplay, // Hide time on Sunday
-          outTime: day === 0 ? '-' : outTimeDisplay, // Hide time on Sunday
+          // Hide times for Sundays/Holidays/Upcoming to keep table clean
+          inTime: (status === 'Weekend' || status === 'Holiday' || status === 'Upcoming') ? '-' : inTimeDisplay,
+          outTime: (status === 'Weekend' || status === 'Holiday' || status === 'Upcoming') ? '-' : outTimeDisplay,
           workedHours: parseFloat(worked.toFixed(2)),
           expectedHours: expected,
           isLeave,
@@ -167,7 +195,7 @@ export default async function handler(req, res) {
         };
       });
 
-      // Clear Duplicates
+      // Clear Duplicates before saving
       if (employeeName !== "Unknown" && datesToOverwrite.length > 0) {
         await Attendance.deleteMany({ 
           employeeName: employeeName, 
