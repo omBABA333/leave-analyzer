@@ -3,47 +3,48 @@ import * as XLSX from "xlsx";
 import dbConnect from "./db";           
 import Attendance from "./models/Attendance"; 
 
-// 1. HELPER: Fix Excel Date Serial Numbers (e.g., 45662 -> "2025-01-05")
-const formatDate = (val) => {
-  if (!val) return "-";
+// 1. ROBUST DATE PARSER (Fixes the "45662" -> Sunday bug)
+const parseExcelDate = (val) => {
+  if (!val) return null;
+
+  // Check if value is a serial number (like 45662)
+  const asNumber = parseFloat(val);
   
-  // Case A: It's an Excel Serial Number
-  if (typeof val === 'number') {
-    // Excel base date is Dec 30, 1899. Convert to JS milliseconds.
-    const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-    return date.toISOString().split('T')[0]; // Returns "YYYY-MM-DD"
+  // Excel serials are valid if they are roughly between 20000 and 60000
+  if (!isNaN(asNumber) && asNumber > 20000 && asNumber < 60000 && String(val).match(/^\d+(\.\d+)?$/)) {
+    // Convert Excel Serial to JS Date (UTC aligned)
+    return new Date(Math.round((asNumber - 25569) * 86400 * 1000));
   }
 
-  // Case B: It's already a string
-  const dateObj = new Date(val);
-  if (!isNaN(dateObj.getTime())) {
-    return dateObj.toISOString().split('T')[0];
-  }
-  return String(val);
+  // Otherwise, try standard string parsing
+  const date = new Date(val);
+  if (!isNaN(date.getTime())) return date;
+  
+  return null;
 };
 
-// 2. HELPER: Convert Excel Time Decimal to "HH:MM" String for Display
-// (e.g., 0.7659 -> "18:23")
+// 2. HELPER: Display Date nicely (YYYY-MM-DD)
+const formatDateString = (dateObj) => {
+  if (!dateObj) return "-";
+  return dateObj.toISOString().split('T')[0];
+};
+
+// 3. HELPER: Display Time (HH:MM)
 const formatTimeDisplay = (val) => {
   if (val === undefined || val === null || val === "") return "-";
-  
-  // If it's a number (Excel Time Fraction)
   if (typeof val === 'number') {
     const totalSeconds = Math.round(val * 86400);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
-    
-    // Pad with leading zeros (e.g., 9:5 -> 09:05)
-    const hStr = String(hours).padStart(2, '0');
+    // Handle wrap-around for display (e.g. 25:00 -> 01:00)
+    const hStr = String(hours % 24).padStart(2, '0');
     const mStr = String(minutes).padStart(2, '0');
     return `${hStr}:${mStr}`;
   }
-
-  // If it's already a string (e.g. "18:30"), return it cleanly
   return String(val);
 };
 
-// 3. HELPER: Parse Time for Calculation (Kept your logic)
+// 4. HELPER: Parse Time for Calculation (Decimal Hours)
 const parseTime = (val) => { 
   if (val === undefined || val === null || val === "") return null;
   if (typeof val === 'number') return val * 24; 
@@ -59,7 +60,7 @@ const parseTime = (val) => {
   return null;
 };
 
-// 4. HELPER: Fuzzy Match Keys
+// 5. HELPER: Fuzzy Match Keys
 const getValue = (row, ...candidates) => { 
   const keys = Object.keys(row);
   for (let cand of candidates) {
@@ -74,18 +75,9 @@ export const config = { api: { bodyParser: false } };
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  // --- DB CONNECTION (Preserved) ---
-  try {
-    await dbConnect();
-  } catch (error) {
-    console.error("DB_CONNECT_FAIL:", error.message);
-    return res.status(500).json({ 
-      error: `Database Error: ${error.message}. Check Vercel Env Vars and MongoDB IP Whitelist.` 
-    });
-  }
+  try { await dbConnect(); } catch (error) { return res.status(500).json({ error: "DB Connection Failed" }); }
 
   const form = new IncomingForm({ uploadDir: "/tmp", keepExtensions: true });
 
@@ -101,6 +93,7 @@ export default async function handler(req, res) {
 
       let totalExpected = 0, totalWorked = 0, leaves = 0, workingDays = 0;
       let employeeName = "Unknown";
+      const datesToOverwrite = [];
 
       const processedData = data.map((row) => {
         const nameInRow = getValue(row, 'Employee Name', 'EmployeeName', 'Name');
@@ -110,48 +103,67 @@ export default async function handler(req, res) {
         const inTimeRaw = getValue(row, 'In-Time', 'InTime');
         const outTimeRaw = getValue(row, 'Out-Time', 'OutTime');
         
-        // --- BUG FIX 1: Apply Date Formatting ---
-        const formattedDate = formatDate(dateRaw);
-
-        // --- BUG FIX 2: Apply Time Formatting ---
-        const inTimeDisplay = formatTimeDisplay(inTimeRaw);
-        const outTimeDisplay = formatTimeDisplay(outTimeRaw);
-
-        // --- BUG FIX 3: Correct Date parsing for Day of Week calculation ---
-        const dateObj = new Date(dateRaw && typeof dateRaw === 'number' 
-          ? (dateRaw - 25569) * 86400 * 1000 
-          : dateRaw);
-        const day = dateObj.getDay();
+        // --- STEP 1: Parse Date Correctly ---
+        const dateObj = parseExcelDate(dateRaw);
         
+        if (!dateObj) {
+           // Skip bad rows or handle error
+           return { employeeName, date: "Invalid Date", status: "Error", isLeave: false };
+        }
+
+        const formattedDate = formatDateString(dateObj);
+        datesToOverwrite.push(formattedDate); 
+
+        // --- STEP 2: Identify Day of Week (0 = Sunday) ---
+        const day = dateObj.getUTCDay(); 
+
         let expected = 0;
         let dayType = 'Weekday';
         
-        if (day === 0) { dayType = 'Sunday'; }
-        else if (day === 6) { expected = 4.0; dayType = 'Saturday'; workingDays++; }
-        else { expected = 8.5; workingDays++; }
+        // --- STEP 3: Apply Strict Logic ---
+        if (day === 0) { 
+          dayType = 'Sunday'; 
+          expected = 0; // Sunday = 0 Expected Hours
+        } else if (day === 6) { 
+          dayType = 'Saturday'; 
+          expected = 4.0; 
+          workingDays++; 
+        } else { 
+          expected = 8.5; 
+          workingDays++; 
+        }
 
-        const inTime = parseTime(inTimeRaw);
-        const outTime = parseTime(outTimeRaw);
+        const inTimeDisplay = formatTimeDisplay(inTimeRaw);
+        const outTimeDisplay = formatTimeDisplay(outTimeRaw);
+        const inTimeVal = parseTime(inTimeRaw);
+        const outTimeVal = parseTime(outTimeRaw);
+
         let worked = 0;
         let isLeave = false;
         let status = 'Present';
 
-        if (inTime != null && outTime != null) {
-          worked = outTime - inTime;
-          if (worked < 0) worked = 0;
+        if (inTimeVal != null && outTimeVal != null) {
+          worked = outTimeVal - inTimeVal;
+          if (worked < 0) worked += 24; // Handle overnight shifts
         } else if (expected > 0) {
-          isLeave = true; leaves++; status = 'Absent / Leave';
-        } else if (day === 0) { status = 'Weekend'; }
+          // It's a workday (Mon-Sat) AND no time logged -> ABSENT
+          isLeave = true; 
+          leaves++; 
+          status = 'Absent / Leave';
+        } else if (day === 0) {
+          // It's Sunday AND no time logged -> WEEKEND (Not Absent)
+          status = 'Weekend';
+        }
 
         totalExpected += expected;
         totalWorked += worked;
 
         return {
           employeeName, 
-          date: formattedDate,      // FIXED: Now sends "2025-01-02" instead of 45662
+          date: formattedDate,
           dayType,
-          inTime: inTimeDisplay,    // FIXED: Now sends "10:05" instead of 0.42...
-          outTime: outTimeDisplay,  // FIXED: Now sends "18:30"
+          inTime: inTimeDisplay,
+          outTime: outTimeDisplay,
           workedHours: parseFloat(worked.toFixed(2)),
           expectedHours: expected,
           isLeave,
@@ -159,20 +171,22 @@ export default async function handler(req, res) {
         };
       });
 
-      // --- SAVE TO DB (Preserved) ---
-      try {
-        await Attendance.insertMany(processedData);
-      } catch (dbError) {
-        console.error("INSERT_ERROR:", dbError);
-        return res.status(500).json({ error: "Failed to save to Database: " + dbError.message });
+      // --- STEP 4: Prevent Duplicates (Delete old entries for these dates) ---
+      if (employeeName !== "Unknown" && datesToOverwrite.length > 0) {
+        await Attendance.deleteMany({ 
+          employeeName: employeeName, 
+          date: { $in: datesToOverwrite } 
+        });
       }
+
+      await Attendance.insertMany(processedData);
 
       const productivity = totalExpected > 0 
         ? ((totalWorked / totalExpected) * 100).toFixed(2) 
         : "0.00";
 
       return res.status(200).json({
-        message: "Data Analyzed & Saved to DB",
+        message: "Analysis Complete",
         summary: {
           employeeName,
           workingDays,
