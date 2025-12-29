@@ -19,6 +19,7 @@
   "homepage": "https://github.com/omBABA333/leave-analyzer#readme",
   "dependencies": {
     "formidable": "^3.5.4",
+    "mongoose": "^9.0.2",
     "multer": "^2.0.2",
     "xlsx": "^0.18.5"
   }

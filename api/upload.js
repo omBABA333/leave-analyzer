@@ -1,5 +1,7 @@
 import { IncomingForm } from "formidable";
 import * as XLSX from "xlsx";
+import dbConnect from "./db";           // <--- Import Connection
+import Attendance from "./models/Attendance";
 
 // 1. Time Parser
 const parseTime = (val) => {
@@ -30,15 +32,23 @@ const getValue = (row, ...candidates) => {
 
 export const config = { api: { bodyParser: false } };
 
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  try {
+    await dbConnect();
+  } catch (error) {
+    console.error("DB Connection Error:", error);
+    return res.status(500).json({ error: "Database connection failed" });
+  }
+
   const form = new IncomingForm({ uploadDir: "/tmp", keepExtensions: true });
 
-  form.parse(req, (err, fields, files) => {
-    if (err) return res.status(500).json({ error: "Upload failed" });
+ form.parse(req, async (err, fields, files) => { // Make callback async
+    if (err) return res.status(500).json({ error: "Upload parsing failed" });
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
-    if (!file) return res.status(400).json({ error: "No file" });
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
 
     try {
       const workbook = XLSX.readFile(file.filepath);
@@ -49,32 +59,24 @@ export default async function handler(req, res) {
 
       const details = data.map((row) => {
         // Capture Employee Name (if exists in row)
-        const nameInRow = getValue(row, 'Employee Name', 'EmployeeName', 'Name', 'Employee');
+        const nameInRow = getValue(row, 'Employee Name', 'EmployeeName', 'Name');
         if (nameInRow) employeeName = nameInRow;
 
         const dateRaw = getValue(row, 'Date', 'date');
         const inTimeRaw = getValue(row, 'In-Time', 'InTime');
         const outTimeRaw = getValue(row, 'Out-Time', 'OutTime');
-
-        // Date & Day Logic
-        const dateObj = new Date(dateRaw);
-        const day = dateObj.getDay(); // 0=Sun, 6=Sat
         
+        // ... [Insert your Business Logic for calculations here] ...
+        // (For brevity, assuming you copy the calculation logic exactly as in previous step)
+        const dateObj = new Date(dateRaw);
+        const day = dateObj.getDay();
         let expected = 0;
         let dayType = 'Weekday';
+        
+        if (day === 0) { dayType = 'Sunday'; }
+        else if (day === 6) { expected = 4.0; dayType = 'Saturday'; workingDays++; }
+        else { expected = 8.5; workingDays++; }
 
-        if (day === 0) {
-          dayType = 'Sunday';
-        } else if (day === 6) {
-          expected = 4.0;
-          dayType = 'Saturday';
-          workingDays++;
-        } else {
-          expected = 8.5;
-          workingDays++;
-        }
-
-        // Time Calculation
         const inTime = parseTime(inTimeRaw);
         const outTime = parseTime(outTimeRaw);
         let worked = 0;
@@ -85,34 +87,35 @@ export default async function handler(req, res) {
           worked = outTime - inTime;
           if (worked < 0) worked = 0;
         } else if (expected > 0) {
-          isLeave = true;
-          leaves++;
-          status = 'Absent / Leave';
-        } else if (day === 0) {
-           status = 'Weekend';
-        }
+          isLeave = true; leaves++; status = 'Absent / Leave';
+        } else if (day === 0) { status = 'Weekend'; }
 
         totalExpected += expected;
         totalWorked += worked;
 
+        // Return Object for MongoDB
         return {
-          Date: dateRaw,
-          Employee: employeeName,
-          DayType: dayType,
-          InTime: inTimeRaw || '-',
-          OutTime: outTimeRaw || '-',
-          workedHours: worked.toFixed(2),
-          status,
-          isLeave
+          employeeName, // We need to store this in every row
+          date: dateRaw,
+          dayType,
+          inTime: inTimeRaw || '-',
+          outTime: outTimeRaw || '-',
+          workedHours: parseFloat(worked.toFixed(2)),
+          expectedHours: expected,
+          isLeave,
+          status
         };
       });
+
+      await Attendance.deleteMany({ employeeName }); 
+      await Attendance.insertMany(processedData);
 
       const productivity = totalExpected > 0 
         ? ((totalWorked / totalExpected) * 100).toFixed(2) 
         : "0.00";
 
       return res.status(200).json({
-        message: "Success",
+        message: "Data Analyzed & Saved to DB",
         summary: {
           employeeName, // Send back the name found
           workingDays,
@@ -125,8 +128,8 @@ export default async function handler(req, res) {
       });
 
     } catch (e) {
-      console.error(e);
-      return res.status(500).json({ error: "Processing failed" });
+      console.error("Processing Error!".e);
+      return res.status(500).json({ error: "Failed to process or save data!" });
     }
   });
 }
