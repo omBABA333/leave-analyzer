@@ -1,15 +1,23 @@
 import React, { useState, useRef } from "react";
 
 const UploadExcel = () => {
+  // Tab State
+  const [activeTab, setActiveTab] = useState("upload"); // 'upload' or 'history'
+
+  // Upload State
   const [file, setFile] = useState(null);
-  const [data, setData] = useState(null);
+  const [uploadData, setUploadData] = useState(null);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef(null);
 
+  // History State
+  const [selectedMonth, setSelectedMonth] = useState("");
+  const [historyData, setHistoryData] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // --- Upload Handlers ---
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
+    if (e.target.files && e.target.files[0]) setFile(e.target.files[0]);
   };
 
   const handleUpload = async (e) => {
@@ -25,74 +33,143 @@ const UploadExcel = () => {
       const result = await res.json();
       
       if (res.ok) {
-        setData(result);
+        setUploadData(result);
         setFile(null);
         if (fileInputRef.current) fileInputRef.current.value = ""; 
       } else {
         alert("Server Error: " + (result.error || "Unknown error"));
       }
     } catch (err) {
-      console.error(err);
       alert("Network Error: Could not connect to server.");
     } finally {
       setLoading(false);
     }
   };
 
+  // --- History Handlers ---
+  const handleFetchHistory = async () => {
+    if (!selectedMonth) return alert("Please select a month");
+    
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/stats?month=${selectedMonth}`);
+      const result = await res.json();
+      
+      if (res.ok) {
+        if(result.summary === null) {
+          alert("No records found for this month.");
+          setHistoryData(null);
+        } else {
+          setHistoryData(result);
+        }
+      } else {
+        alert("Error fetching data");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // Determine which data to show based on active tab
+  const displayData = activeTab === "upload" ? uploadData : historyData;
+
   return (
     <div className="min-h-screen bg-gray-50 p-8 font-sans text-gray-800">
       <div className="max-w-7xl mx-auto">
         
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-indigo-700">Leave & Productivity Analyzer</h1>
-            <p className="text-gray-500 text-sm mt-1">Om Aher | Intern Project | MPSTME</p>
+            <p className="text-gray-500 text-sm mt-1">Full Stack Intern Project</p>
           </div>
           
-          {/* Upload Form */}
-          <form onSubmit={handleUpload} className="flex gap-3 bg-white p-2 rounded shadow-sm border items-center">
-            <span className="text-sm text-gray-500 px-2">
-              {file ? file.name : "No file chosen"}
-            </span>
-            <div className="relative">
-              <input 
-                type="file" 
-                accept=".xlsx" 
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              />
-              <button 
-                type="button"
-                className="bg-white text-indigo-600 border border-indigo-200 px-4 py-2 rounded text-sm font-medium hover:bg-indigo-50"
-              >
-                Choose File
-              </button>
-            </div>
+          {/* Tab Switcher */}
+          <div className="flex bg-white rounded-lg shadow-sm p-1 border">
             <button 
-              disabled={loading || !file}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm font-medium transition disabled:bg-gray-400"
+              onClick={() => setActiveTab("upload")}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'upload' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {loading ? "Processing..." : "Analyze"}
+              Upload File
             </button>
-          </form>
+            <button 
+              onClick={() => setActiveTab("history")}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'history' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Monthly History
+            </button>
+          </div>
         </div>
 
-        {data && (
+        {/* --- UPLOAD SECTION --- */}
+        {activeTab === "upload" && (
+          <div className="bg-white p-6 rounded-lg shadow-sm border mb-8 animate-fade-in">
+            <h2 className="text-lg font-semibold mb-4">Upload Attendance Sheet</h2>
+            <form onSubmit={handleUpload} className="flex gap-3 items-center">
+              <div className="relative">
+                <input 
+                  type="file" 
+                  accept=".xlsx" 
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  className="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-full file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-indigo-50 file:text-indigo-700
+                    hover:file:bg-indigo-100"
+                />
+              </div>
+              <button 
+                disabled={loading || !file}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+              >
+                {loading ? "Analyzing..." : "Analyze"}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* --- HISTORY SECTION --- */}
+        {activeTab === "history" && (
+          <div className="bg-white p-6 rounded-lg shadow-sm border mb-8 animate-fade-in">
+            <h2 className="text-lg font-semibold mb-4">Select Month to Analyze</h2>
+            <div className="flex gap-4 items-end">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Month</label>
+                <input 
+                  type="month" 
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="border rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+              <button 
+                onClick={handleFetchHistory}
+                disabled={historyLoading || !selectedMonth}
+                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 h-[38px]"
+              >
+                {historyLoading ? "Loading..." : "Get Report"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* --- REPORT DASHBOARD (Shared) --- */}
+        {displayData && (
           <div className="animate-fade-in-up">
-            {/* 1. Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-              <Card label="Employee" value={data.summary.employeeName} />
-              <Card label="Productivity" value={`${data.summary.productivity}%`} 
-                    color={parseFloat(data.summary.productivity) > 90 ? "text-green-600" : "text-yellow-600"} />
-              <Card label="Leaves Used" value={`${data.summary.leaves} / 2`} 
-                    color={data.summary.leaves > 2 ? "text-red-600" : "text-gray-800"} />
-              <Card label="Actual Hours" value={data.summary.totalWorked} />
-              <Card label="Expected Hours" value={data.summary.totalExpected} />
+              <Card label="Employee" value={displayData.summary.employeeName} />
+              <Card label="Productivity" value={`${displayData.summary.productivity}%`} 
+                    color={parseFloat(displayData.summary.productivity) > 90 ? "text-green-600" : "text-yellow-600"} />
+              <Card label="Leaves (in selection)" value={displayData.summary.leaves} 
+                    color={displayData.summary.leaves > 2 ? "text-red-600" : "text-gray-800"} />
+              <Card label="Actual Hours" value={displayData.summary.totalWorked} />
+              <Card label="Expected Hours" value={displayData.summary.totalExpected} />
             </div>
 
-            {/* 2. The Clean Table */}
             <div className="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-100">
@@ -105,9 +182,8 @@ const UploadExcel = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {data.details.map((row, idx) => (
+                  {displayData.details.map((row, idx) => (
                     <tr key={idx} className={row.isLeave ? "bg-red-50" : "hover:bg-gray-50"}>
-                      {/* FIX: Use lowercase keys to match Backend response */}
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.date}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold
@@ -123,9 +199,7 @@ const UploadExcel = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {row.isLeave ? (
-                          <span className="text-red-600 font-bold flex items-center gap-1">
-                            ⚠ Absent
-                          </span>
+                          <span className="text-red-600 font-bold flex items-center gap-1">⚠ Absent</span>
                         ) : row.status === 'Weekend' ? (
                           <span className="text-gray-400">Off</span>
                         ) : (
@@ -144,7 +218,6 @@ const UploadExcel = () => {
   );
 };
 
-// Helper Component for Cards
 const Card = ({ label, value, color = "text-gray-900" }) => (
   <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
     <dt className="text-xs font-medium text-gray-500 uppercase truncate">{label}</dt>
