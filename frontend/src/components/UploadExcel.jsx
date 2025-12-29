@@ -1,12 +1,18 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 
 const UploadExcel = () => {
   const [file, setFile] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const fileInputRef = useRef(null);
 
+  // const handleFileChange = (e) => {
+  //   setFile(e.target.files[0]);
+  // };
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
   };
 
   const handleUpload = async (e) => {
@@ -20,13 +26,21 @@ const UploadExcel = () => {
     try {
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       const result = await res.json();
-      if (res.ok) setData(result);
-      else alert(result.error);
+      
+      if (res.ok) {
+        setData(result);
+        setFile(null); // Clear state
+        if (fileInputRef.current) fileInputRef.current.value = ""; // <--- Reset HTML Input
+      } else {
+        alert("Server Error: " + (result.error || "Unknown error"));
+      }
     } catch (err) {
-      alert("Uploading failed!");
+      console.error(err); // Check console for real error
+      alert("Network Error: Could not connect to server.");
     } finally {
       setLoading(false);
     }
+
   };
 
   return (
@@ -34,21 +48,28 @@ const UploadExcel = () => {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-indigo-700">Leave & Productivity Analyzer</h1>
+            <h1 className="text-4xl font-bold text-indigo-700">Leave & Productivity Analyzer</h1>
             <p className="text-gray-500 text-sm mt-1">Om Aher | Intern Project | MPSTME</p>
           </div>
           
+
           {/* Upload Form */}
           <form onSubmit={handleUpload} className="flex gap-3 bg-white p-2 rounded shadow-sm border">
             <input 
               type="file" 
               accept=".xlsx" 
+              ref={fileInputRef}
               onChange={handleFileChange}
-              className="text-sm file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+              className="block w-full text-sm text-gray-500
+              file:mr-4 file:py-2 file:px-4
+              file:rounded-full file:border-0
+              file:text-sm file:font-semibold
+              file:bg-blue-50 file:text-blue-700
+              hover:file:bg-blue-100 cursor-pointer"
             />
             <button 
-              disabled={loading}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm font-medium transition"
+              disabled={loading || !file} // Disable if no file selected
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm font-medium transition disabled:bg-gray-400"
             >
               {loading ? "Processing..." : "Analyze"}
             </button>
