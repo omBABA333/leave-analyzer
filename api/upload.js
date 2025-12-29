@@ -3,7 +3,47 @@ import * as XLSX from "xlsx";
 import dbConnect from "./db";           
 import Attendance from "./models/Attendance"; 
 
-// ... [Keep your parseTime and getValue helper functions exactly as they are] ...
+// 1. HELPER: Fix Excel Date Serial Numbers (e.g., 45662 -> "2025-01-05")
+const formatDate = (val) => {
+  if (!val) return "-";
+  
+  // Case A: It's an Excel Serial Number
+  if (typeof val === 'number') {
+    // Excel base date is Dec 30, 1899. Convert to JS milliseconds.
+    const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+    return date.toISOString().split('T')[0]; // Returns "YYYY-MM-DD"
+  }
+
+  // Case B: It's already a string
+  const dateObj = new Date(val);
+  if (!isNaN(dateObj.getTime())) {
+    return dateObj.toISOString().split('T')[0];
+  }
+  return String(val);
+};
+
+// 2. HELPER: Convert Excel Time Decimal to "HH:MM" String for Display
+// (e.g., 0.7659 -> "18:23")
+const formatTimeDisplay = (val) => {
+  if (val === undefined || val === null || val === "") return "-";
+  
+  // If it's a number (Excel Time Fraction)
+  if (typeof val === 'number') {
+    const totalSeconds = Math.round(val * 86400);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    
+    // Pad with leading zeros (e.g., 9:5 -> 09:05)
+    const hStr = String(hours).padStart(2, '0');
+    const mStr = String(minutes).padStart(2, '0');
+    return `${hStr}:${mStr}`;
+  }
+
+  // If it's already a string (e.g. "18:30"), return it cleanly
+  return String(val);
+};
+
+// 3. HELPER: Parse Time for Calculation (Kept your logic)
 const parseTime = (val) => { 
   if (val === undefined || val === null || val === "") return null;
   if (typeof val === 'number') return val * 24; 
@@ -19,6 +59,7 @@ const parseTime = (val) => {
   return null;
 };
 
+// 4. HELPER: Fuzzy Match Keys
 const getValue = (row, ...candidates) => { 
   const keys = Object.keys(row);
   for (let cand of candidates) {
@@ -32,17 +73,15 @@ const getValue = (row, ...candidates) => {
 export const config = { api: { bodyParser: false } };
 
 export default async function handler(req, res) {
-  // 1. Enable CORS just in case (optional but helpful)
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  // 2. DEBUG MODE: Try to connect and catch specifically
+  // --- DB CONNECTION (Preserved) ---
   try {
     await dbConnect();
   } catch (error) {
     console.error("DB_CONNECT_FAIL:", error.message);
-    // Send the EXACT error to the frontend so you can see it
     return res.status(500).json({ 
       error: `Database Error: ${error.message}. Check Vercel Env Vars and MongoDB IP Whitelist.` 
     });
@@ -71,8 +110,19 @@ export default async function handler(req, res) {
         const inTimeRaw = getValue(row, 'In-Time', 'InTime');
         const outTimeRaw = getValue(row, 'Out-Time', 'OutTime');
         
-        const dateObj = new Date(dateRaw);
+        // --- BUG FIX 1: Apply Date Formatting ---
+        const formattedDate = formatDate(dateRaw);
+
+        // --- BUG FIX 2: Apply Time Formatting ---
+        const inTimeDisplay = formatTimeDisplay(inTimeRaw);
+        const outTimeDisplay = formatTimeDisplay(outTimeRaw);
+
+        // --- BUG FIX 3: Correct Date parsing for Day of Week calculation ---
+        const dateObj = new Date(dateRaw && typeof dateRaw === 'number' 
+          ? (dateRaw - 25569) * 86400 * 1000 
+          : dateRaw);
         const day = dateObj.getDay();
+        
         let expected = 0;
         let dayType = 'Weekday';
         
@@ -98,10 +148,10 @@ export default async function handler(req, res) {
 
         return {
           employeeName, 
-          date: dateRaw,
+          date: formattedDate,      // FIXED: Now sends "2025-01-02" instead of 45662
           dayType,
-          inTime: inTimeRaw || '-',
-          outTime: outTimeRaw || '-',
+          inTime: inTimeDisplay,    // FIXED: Now sends "10:05" instead of 0.42...
+          outTime: outTimeDisplay,  // FIXED: Now sends "18:30"
           workedHours: parseFloat(worked.toFixed(2)),
           expectedHours: expected,
           isLeave,
@@ -109,7 +159,7 @@ export default async function handler(req, res) {
         };
       });
 
-      // 3. Save to DB with Error Handling
+      // --- SAVE TO DB (Preserved) ---
       try {
         await Attendance.insertMany(processedData);
       } catch (dbError) {
