@@ -1,7 +1,7 @@
 import { IncomingForm } from "formidable";
 import * as XLSX from "xlsx";
 import dbConnect from "./db";           
-import Attendance from "../models/Attendance"; 
+import Attendance from "./models/Attendance"; 
 
 // ... [Keep your parseTime and getValue helper functions exactly as they are] ...
 const parseTime = (val) => { 
