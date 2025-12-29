@@ -72,6 +72,23 @@ const UploadExcel = () => {
     }
   };
 
+  const handleReset = async () => {
+    if (!window.confirm("⚠️ WARNING: This will delete ALL history from the database. Are you sure?")) return;
+    
+    try {
+      const res = await fetch("/api/reset", { method: "DELETE" });
+      if (res.ok) {
+        alert("Database Cleared! Please upload your file again.");
+        setUploadData(null);
+        setHistoryData(null);
+      } else {
+        alert("Failed to reset database.");
+      }
+    } catch (e) {
+      alert("Network error.");
+    }
+  };
+
   // Determine which data to show based on active tab
   const displayData = activeTab === "upload" ? uploadData : historyData;
 
@@ -79,27 +96,37 @@ const UploadExcel = () => {
     <div className="min-h-screen bg-gray-50 p-8 font-sans text-gray-800">
       <div className="max-w-7xl mx-auto">
         
-        {/* Header */}
+        {/* Header & Controls */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-indigo-700">Leave & Productivity Analyzer</h1>
             <p className="text-gray-500 text-sm mt-1">Full Stack Intern Project</p>
           </div>
           
-          {/* Tab Switcher */}
-          <div className="flex bg-white rounded-lg shadow-sm p-1 border">
+          <div className="flex gap-4">
+            {/* RESET BUTTON */}
             <button 
-              onClick={() => setActiveTab("upload")}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'upload' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}
+              onClick={handleReset}
+              className="px-4 py-2 rounded-md text-sm font-bold bg-red-100 text-red-600 hover:bg-red-200 border border-red-200 transition"
             >
-              Upload File
+              🗑️ Clear Database
             </button>
-            <button 
-              onClick={() => setActiveTab("history")}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'history' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Monthly History
-            </button>
+
+            {/* TABS */}
+            <div className="flex bg-white rounded-lg shadow-sm p-1 border">
+              <button 
+                onClick={() => setActiveTab("upload")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'upload' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Upload File
+              </button>
+              <button 
+                onClick={() => setActiveTab("history")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === 'history' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Monthly History
+              </button>
+            </div>
           </div>
         </div>
 
@@ -114,12 +141,7 @@ const UploadExcel = () => {
                   accept=".xlsx" 
                   ref={fileInputRef}
                   onChange={handleFileChange}
-                  className="block w-full text-sm text-gray-500
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-full file:border-0
-                    file:text-sm file:font-semibold
-                    file:bg-indigo-50 file:text-indigo-700
-                    hover:file:bg-indigo-100"
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
                 />
               </div>
               <button 
@@ -157,15 +179,14 @@ const UploadExcel = () => {
           </div>
         )}
 
-        {/* --- REPORT DASHBOARD (Shared) --- */}
+        {/* --- DASHBOARD --- */}
         {displayData && (
           <div className="animate-fade-in-up">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
               <Card label="Employee" value={displayData.summary.employeeName} />
               <Card label="Productivity" value={`${displayData.summary.productivity}%`} 
-                    color={parseFloat(displayData.summary.productivity) > 90 ? "text-green-600" : "text-yellow-600"} />
-              <Card label="Leaves (in selection)" value={displayData.summary.leaves} 
-                    color={displayData.summary.leaves > 2 ? "text-red-600" : "text-gray-800"} />
+                    color={parseFloat(displayData.summary.productivity) > 100 ? "text-red-600" : parseFloat(displayData.summary.productivity) > 90 ? "text-green-600" : "text-yellow-600"} />
+              <Card label="Leaves (in selection)" value={displayData.summary.leaves} />
               <Card label="Actual Hours" value={displayData.summary.totalWorked} />
               <Card label="Expected Hours" value={displayData.summary.totalExpected} />
             </div>
@@ -175,9 +196,7 @@ const UploadExcel = () => {
                 <thead className="bg-gray-100">
                   <tr>
                     {["Date", "Day Type", "In Time", "Out Time", "Hours", "Status"].map((h) => (
-                      <th key={h} className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                        {h}
-                      </th>
+                      <th key={h} className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -185,26 +204,12 @@ const UploadExcel = () => {
                   {displayData.details.map((row, idx) => (
                     <tr key={idx} className={row.isLeave ? "bg-red-50" : "hover:bg-gray-50"}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.date}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold
-                          ${row.dayType === 'Saturday' ? 'bg-orange-100 text-orange-800' : 
-                            row.dayType === 'Sunday' ? 'bg-gray-200 text-gray-600' : 'text-gray-600'}`}>
-                          {row.dayType}
-                        </span>
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">{row.dayType}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.inTime}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.outTime}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-bold text-gray-800">
-                        {row.workedHours}
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-800">{row.workedHours}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {row.isLeave ? (
-                          <span className="text-red-600 font-bold flex items-center gap-1">⚠ Absent</span>
-                        ) : row.status === 'Weekend' ? (
-                          <span className="text-gray-400">Off</span>
-                        ) : (
-                          <span className="text-green-600 font-medium">Present</span>
-                        )}
+                        {row.isLeave ? <span className="text-red-600 font-bold">⚠ Absent</span> : <span className="text-green-600 font-medium">Present</span>}
                       </td>
                     </tr>
                   ))}
