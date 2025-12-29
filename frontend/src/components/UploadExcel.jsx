@@ -6,9 +6,6 @@ const UploadExcel = () => {
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef(null);
 
-  // const handleFileChange = (e) => {
-  //   setFile(e.target.files[0]);
-  // };
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       setFile(e.target.files[0]);
@@ -17,7 +14,7 @@ const UploadExcel = () => {
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!file) return alert("No file Uploaded:<");
+    if (!file) return alert("Please select a file first.");
 
     setLoading(true);
     const formData = new FormData();
@@ -29,46 +26,52 @@ const UploadExcel = () => {
       
       if (res.ok) {
         setData(result);
-        setFile(null); // Clear state
-        if (fileInputRef.current) fileInputRef.current.value = ""; // <--- Reset HTML Input
+        setFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = ""; 
       } else {
         alert("Server Error: " + (result.error || "Unknown error"));
       }
     } catch (err) {
-      console.error(err); // Check console for real error
+      console.error(err);
       alert("Network Error: Could not connect to server.");
     } finally {
       setLoading(false);
     }
-
   };
 
   return (
     <div className="min-h-screen bg-gray-50 p-8 font-sans text-gray-800">
       <div className="max-w-7xl mx-auto">
+        
+        {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-indigo-700">Leave & Productivity Analyzer</h1>
+            <h1 className="text-3xl font-bold text-indigo-700">Leave & Productivity Analyzer</h1>
             <p className="text-gray-500 text-sm mt-1">Om Aher | Intern Project | MPSTME</p>
           </div>
           
-
           {/* Upload Form */}
-          <form onSubmit={handleUpload} className="flex gap-3 bg-white p-2 rounded shadow-sm border">
-            <input 
-              type="file" 
-              accept=".xlsx" 
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              className="block w-full text-sm text-gray-500
-              file:mr-4 file:py-2 file:px-4
-              file:rounded-full file:border-0
-              file:text-sm file:font-semibold
-              file:bg-blue-50 file:text-blue-700
-              hover:file:bg-blue-100 cursor-pointer"
-            />
+          <form onSubmit={handleUpload} className="flex gap-3 bg-white p-2 rounded shadow-sm border items-center">
+            <span className="text-sm text-gray-500 px-2">
+              {file ? file.name : "No file chosen"}
+            </span>
+            <div className="relative">
+              <input 
+                type="file" 
+                accept=".xlsx" 
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+              <button 
+                type="button"
+                className="bg-white text-indigo-600 border border-indigo-200 px-4 py-2 rounded text-sm font-medium hover:bg-indigo-50"
+              >
+                Choose File
+              </button>
+            </div>
             <button 
-              disabled={loading || !file} // Disable if no file selected
+              disabled={loading || !file}
               className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-sm font-medium transition disabled:bg-gray-400"
             >
               {loading ? "Processing..." : "Analyze"}
@@ -104,16 +107,17 @@ const UploadExcel = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {data.details.map((row, idx) => (
                     <tr key={idx} className={row.isLeave ? "bg-red-50" : "hover:bg-gray-50"}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.Date}</td>
+                      {/* FIX: Use lowercase keys to match Backend response */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{row.date}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold
-                          ${row.DayType === 'Saturday' ? 'bg-orange-100 text-orange-800' : 
-                            row.DayType === 'Sunday' ? 'bg-gray-200 text-gray-600' : 'text-gray-600'}`}>
-                          {row.DayType}
+                          ${row.dayType === 'Saturday' ? 'bg-orange-100 text-orange-800' : 
+                            row.dayType === 'Sunday' ? 'bg-gray-200 text-gray-600' : 'text-gray-600'}`}>
+                          {row.dayType}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.InTime}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.OutTime}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.inTime}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.outTime}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-bold text-gray-800">
                         {row.workedHours}
                       </td>
