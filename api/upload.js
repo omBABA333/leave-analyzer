@@ -1,12 +1,12 @@
 import { IncomingForm } from "formidable";
 import * as XLSX from "xlsx";
-import dbConnect from "./db";           // <--- Import Connection
-import Attendance from "./models/Attendance";
+import dbConnect from "./db";           
+import Attendance from "../models/Attendance"; 
 
-// 1. Time Parser
-const parseTime = (val) => {
+// ... [Keep your parseTime and getValue helper functions exactly as they are] ...
+const parseTime = (val) => { 
   if (val === undefined || val === null || val === "") return null;
-  if (typeof val === 'number') return val * 24; // Excel fraction
+  if (typeof val === 'number') return val * 24; 
   const str = String(val).trim().toUpperCase();
   const match = str.match(/(\d{1,2}):(\d{2})/);
   if (match) {
@@ -19,8 +19,7 @@ const parseTime = (val) => {
   return null;
 };
 
-// 2. Column Finder (Fuzzy Match)
-const getValue = (row, ...candidates) => {
+const getValue = (row, ...candidates) => { 
   const keys = Object.keys(row);
   for (let cand of candidates) {
     const norm = cand.toLowerCase().replace(/[- ]/g, '');
@@ -32,21 +31,28 @@ const getValue = (row, ...candidates) => {
 
 export const config = { api: { bodyParser: false } };
 
-
 export default async function handler(req, res) {
+  // 1. Enable CORS just in case (optional but helpful)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  // 2. DEBUG MODE: Try to connect and catch specifically
   try {
     await dbConnect();
   } catch (error) {
-    console.error("DB Connection Error:", error);
-    return res.status(500).json({ error: "Database connection failed" });
+    console.error("DB_CONNECT_FAIL:", error.message);
+    // Send the EXACT error to the frontend so you can see it
+    return res.status(500).json({ 
+      error: `Database Error: ${error.message}. Check Vercel Env Vars and MongoDB IP Whitelist.` 
+    });
   }
 
   const form = new IncomingForm({ uploadDir: "/tmp", keepExtensions: true });
 
- form.parse(req, async (err, fields, files) => { // Make callback async
+  form.parse(req, async (err, fields, files) => {
     if (err) return res.status(500).json({ error: "Upload parsing failed" });
+
     const file = Array.isArray(files.file) ? files.file[0] : files.file;
     if (!file) return res.status(400).json({ error: "No file uploaded" });
 
@@ -55,10 +61,9 @@ export default async function handler(req, res) {
       const data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
       let totalExpected = 0, totalWorked = 0, leaves = 0, workingDays = 0;
-      let employeeName = "Unknown"; // Default
+      let employeeName = "Unknown";
 
-      const details = data.map((row) => {
-        // Capture Employee Name (if exists in row)
+      const processedData = data.map((row) => {
         const nameInRow = getValue(row, 'Employee Name', 'EmployeeName', 'Name');
         if (nameInRow) employeeName = nameInRow;
 
@@ -66,8 +71,6 @@ export default async function handler(req, res) {
         const inTimeRaw = getValue(row, 'In-Time', 'InTime');
         const outTimeRaw = getValue(row, 'Out-Time', 'OutTime');
         
-        // ... [Insert your Business Logic for calculations here] ...
-        // (For brevity, assuming you copy the calculation logic exactly as in previous step)
         const dateObj = new Date(dateRaw);
         const day = dateObj.getDay();
         let expected = 0;
@@ -93,9 +96,8 @@ export default async function handler(req, res) {
         totalExpected += expected;
         totalWorked += worked;
 
-        // Return Object for MongoDB
         return {
-          employeeName, // We need to store this in every row
+          employeeName, 
           date: dateRaw,
           dayType,
           inTime: inTimeRaw || '-',
@@ -107,8 +109,13 @@ export default async function handler(req, res) {
         };
       });
 
-      await Attendance.deleteMany({ employeeName }); 
-      await Attendance.insertMany(processedData);
+      // 3. Save to DB with Error Handling
+      try {
+        await Attendance.insertMany(processedData);
+      } catch (dbError) {
+        console.error("INSERT_ERROR:", dbError);
+        return res.status(500).json({ error: "Failed to save to Database: " + dbError.message });
+      }
 
       const productivity = totalExpected > 0 
         ? ((totalWorked / totalExpected) * 100).toFixed(2) 
@@ -117,19 +124,19 @@ export default async function handler(req, res) {
       return res.status(200).json({
         message: "Data Analyzed & Saved to DB",
         summary: {
-          employeeName, // Send back the name found
+          employeeName,
           workingDays,
           totalExpected,
           totalWorked: totalWorked.toFixed(2),
           leaves,
           productivity
         },
-        details
+        details: processedData
       });
 
     } catch (e) {
-      console.error("Processing Error!".e);
-      return res.status(500).json({ error: "Failed to process or save data!" });
+      console.error("Processing Error:", e);
+      return res.status(500).json({ error: "Processing failed: " + e.message });
     }
   });
 }

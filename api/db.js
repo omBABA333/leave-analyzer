@@ -1,11 +1,6 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI; // We will set this in Vercel later
-
-if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable');
-}
-
+// connection cache
 let cached = global.mongoose;
 
 if (!cached) {
@@ -13,20 +8,38 @@ if (!cached) {
 }
 
 async function dbConnect() {
+  // 1. Check if Env Var exists inside the function to prevent top-level crashes
+  const MONGODB_URI = process.env.MONGODB_URI;
+
+  if (!MONGODB_URI) {
+    throw new Error('CRITICAL ERROR: MONGODB_URI is missing in Vercel Environment Variables.');
+  }
+
+  // 2. Return existing connection
   if (cached.conn) {
     return cached.conn;
   }
 
+  // 3. Create new connection
   if (!cached.promise) {
     const opts = {
-      bufferCommands: false,
+      bufferCommands: false, // Return errors immediately if driver is offline
     };
 
     cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
+      console.log("✅ MongoDB Connected Successfully");
       return mongoose;
     });
   }
-  cached.conn = await cached.promise;
+
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    console.error("❌ MongoDB Connection Error:", e);
+    throw e;
+  }
+
   return cached.conn;
 }
 
