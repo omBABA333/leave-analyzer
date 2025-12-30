@@ -3,13 +3,12 @@ import * as XLSX from "xlsx";
 import dbConnect from "./db";           
 import Attendance from "./models/Attendance"; 
 
-// --- CONFIGURATION: Public Holidays (YYYY-MM-DD) ---
 const HOLIDAYS = [
   "2025-01-26", // Republic Day
   "2025-08-15", // Independence Day
   "2025-10-02", // Gandhi Jayanti
   "2025-12-25", // Christmas
-  // Add more dates here as needed
+  
 ];
 
 // 1. ROBUST DATE PARSER

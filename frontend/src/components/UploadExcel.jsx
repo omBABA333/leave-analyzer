@@ -66,7 +66,7 @@ const UploadExcel = () => {
   };
 
   const handleReset = async () => {
-    if (!window.confirm("⚠️ WARNING: This will delete ALL history from the database. Are you sure?")) return;
+    if (!window.confirm("This will delete ALL history from the database. Are you sure?")) return;
     try {
       const res = await fetch("/api/reset", { method: "DELETE" });
       if (res.ok) {
@@ -85,9 +85,9 @@ const UploadExcel = () => {
 
   // --- HELPER TO RENDER STATUS BADGES ---
   const renderStatus = (row) => {
-    if (row.isLeave) return <span className="text-red-600 font-bold flex items-center gap-1">⚠ Absent</span>;
+    if (row.isLeave) return <span className="text-red-600 font-bold flex items-center gap-1">Absent</span>;
     if (row.status === 'Weekend') return <span className="text-gray-400 font-medium">Weekend</span>;
-    if (row.status === 'Holiday') return <span className="text-blue-600 font-bold">🎉 Holiday</span>;
+    if (row.status === 'Holiday') return <span className="text-blue-600 font-bold">Holiday</span>;
     if (row.status === 'Upcoming') return <span className="text-indigo-400 font-medium">Upcoming</span>;
     return <span className="text-green-600 font-bold">Present</span>;
   };
@@ -100,7 +100,7 @@ const UploadExcel = () => {
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-indigo-700">Leave & Productivity Analyzer</h1>
-            <p className="text-gray-500 text-sm mt-1">Full Stack Intern Project</p>
+            <p className="text-gray-500 text-sm mt-1">Aher Om | Intern Project | MPSTME</p>
           </div>
           
           <div className="flex gap-4">
@@ -108,7 +108,7 @@ const UploadExcel = () => {
               onClick={handleReset}
               className="px-4 py-2 rounded-md text-sm font-bold bg-red-100 text-red-600 hover:bg-red-200 border border-red-200 transition"
             >
-              🗑️ Clear Database
+              Clear Database
             </button>
             <div className="flex bg-white rounded-lg shadow-sm p-1 border">
               <button 
